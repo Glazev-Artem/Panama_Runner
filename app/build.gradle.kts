@@ -30,9 +30,15 @@ android {
             )
         }
     }
-    
+
     packaging {
         jniLibs.useLegacyPackaging = true
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs.pickFirsts.add("**/libc++_shared.so")
+        jniLibs.pickFirsts.add("**/libarcore_sdk_c.so")
+        jniLibs.pickFirsts.add("**/libfilament-jni.so")
     }
 
     compileOptions {

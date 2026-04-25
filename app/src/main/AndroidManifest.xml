@@ -8,12 +8,11 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <uses-feature android:name="android.hardware.camera.ar" />
+    <uses-feature android:name="android.hardware.camera.ar" android:required="true" />
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus" />
     <uses-feature android:name="android.hardware.camera.front" android:required="true" />
 
-    <!-- Запросы для Android 11+ (должны быть вне <application>) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -32,6 +31,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Panama_Runner">
+
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="required"
+            tools:replace="android:value" />
 
         <activity
             android:name=".MainActivity"

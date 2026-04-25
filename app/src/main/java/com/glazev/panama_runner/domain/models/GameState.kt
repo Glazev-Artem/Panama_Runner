@@ -59,7 +59,7 @@ data class GameState(
     val particles: List<GameObject.Particle> = emptyList()
 ) {
     companion object {
-        const val MAX_SCORE = 50
+        const val MAX_SCORE = 1000
         const val MAX_MISSED = 16
     }
 }

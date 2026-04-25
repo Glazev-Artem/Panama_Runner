@@ -1,364 +1,307 @@
 package com.glazev.panama_runner.presentation.ar
 
-import android.Manifest
 import android.app.Activity
-import android.content.ContentValues
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.MediaStore
-import android.view.PixelCopy
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import com.google.ar.core.AugmentedFace
+import com.google.ar.core.CameraConfig
+import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import io.github.sceneview.ar.ARScene
+import io.github.sceneview.ar.rememberARCameraStream
+import io.github.sceneview.math.Position
+import io.github.sceneview.math.Rotation
+import io.github.sceneview.math.Scale
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.node.Node
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberMainLightNode
+import io.github.sceneview.rememberMaterialLoader
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import dev.romainguy.kotlin.math.Quaternion
+import dev.romainguy.kotlin.math.Float3
 
 @Composable
-fun ARScreen(onBack: () -> Unit) {
+fun ARScreen(
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
-    val view = LocalView.current
-    val scope = rememberCoroutineScope()
 
-    var hasCameraPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasCameraPermission = isGranted
-        if (!isGranted) {
-            Toast.makeText(context, "Нужен доступ к камере", Toast.LENGTH_LONG).show()
-            onBack()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    val activity = context.findActivity()
-    DisposableEffect(Unit) {
-        val originalOrientation = activity?.requestedOrientation
+    DisposableEffect(context) {
+        val activity = context as? Activity
+        val originalOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        activity?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-
         onDispose {
-            activity?.requestedOrientation = originalOrientation ?: ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            activity?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+            activity?.requestedOrientation = originalOrientation
         }
     }
 
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
+    val materialLoader = rememberMaterialLoader(engine)
     val childNodes = rememberNodes()
 
-    val mainLightNode = rememberMainLightNode(engine) {
-        intensity = 60_000f
-        color = dev.romainguy.kotlin.math.Float4(1.0f, 1.0f, 1.0f, 1.0f)
-        rotation = io.github.sceneview.math.Rotation(x = 50f, y = 0f, z = 40f)
+    // ==========================================
+    // 1. НАСТРОЙКИ ОСВЕЩЕНИЯ (Выведены в UI)
+    // ==========================================
+    var lightIntensity by remember { mutableFloatStateOf(90000f) }
+    var lightDirX by remember { mutableFloatStateOf(0f) } // Направление света по X (Влево/Вправо)
+    var lightDirY by remember { mutableFloatStateOf(1f) } // Направление света по Y (Сверху/Снизу)
+    var lightDirZ by remember { mutableFloatStateOf(1f) } // Направление света по Z (Спереди/Сзади)
+
+    val mainLightNode = rememberMainLightNode(engine)
+
+    // Обновляем свет динамически при движении ползунков
+    LaunchedEffect(lightIntensity, lightDirX, lightDirY, lightDirZ) {
+        mainLightNode.intensity = lightIntensity
+        mainLightNode.position = Position(lightDirX, lightDirY, lightDirZ)
     }
 
-    var isFaceDetected by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(true) }
-    var showFlash by remember { mutableStateOf(false) }
+    val cameraStream = rememberARCameraStream(materialLoader)
 
-    val panamaYOffset = remember { Animatable(0.6f) }
-    var rotationY by remember { mutableStateOf(-15f) }
+    // ==========================================
+    // 2. НАСТРОЙКИ ПАНАМЫ (P)
+    // ==========================================
+    var pScale by remember { mutableFloatStateOf(0.12f) }
+    var pY by remember { mutableFloatStateOf(0.14f) }
+    // Изначально ставим глубину -0.07
+    var pZ by remember { mutableFloatStateOf(-0.07f) }
+    var pRot by remember { mutableFloatStateOf(180f) }
 
-    // Создаем базовый узел для отслеживания лица (старый добрый вариант)
-    val faceAnchorNode = remember { Node(engine).apply { isVisible = false } }
+    // ==========================================
+    // 3. НАСТРОЙКИ ЩИТА-ОККЛЮДЕРА (O)
+    // ==========================================
+    var oScale by remember { mutableFloatStateOf(0.13f) }
+    var oY by remember { mutableFloatStateOf(0.07f) }
+    // ВАЖНО: Изначально ставим глубину щита ТАКУЮ ЖЕ, как у панамы (-0.07), чтобы избежать раскачивания!
+    var oZ by remember { mutableFloatStateOf(-0.07f) }
+    var oRot by remember { mutableFloatStateOf(0f) }
 
-    // Состояние для хранения готовой ноды с панамой
-    val panamaNodeState = remember { mutableStateOf<ModelNode?>(null) }
+    // Тумблер видимости щита для настройки
+    var isOccluderVisible by remember { mutableStateOf(false) }
 
-    // 1. Добавляем якорь на сцену один раз при запуске
+    val faceAnchorNode = remember(engine) { Node(engine).apply { isVisible = false } }
+
+    var hatNode by remember { mutableStateOf<ModelNode?>(null) }
+    var occluderNode by remember { mutableStateOf<ModelNode?>(null) }
+
+    var loadStatus by remember { mutableStateOf("Загрузка...") }
+
     LaunchedEffect(Unit) {
-        if (!childNodes.contains(faceAnchorNode)) {
-            childNodes += faceAnchorNode
+        if (faceAnchorNode !in childNodes) childNodes.add(faceAnchorNode)
+
+        // ЗАГРУЗКА ЩИТА
+        modelLoader.loadModelInstanceAsync("head_occluder.glb") { modelInstance ->
+            if (modelInstance != null) {
+                val node = ModelNode(modelInstance = modelInstance, centerOrigin = Position(0f, 0f, 0f)).apply {
+                    isVisible = true
+                    parent = faceAnchorNode
+                }
+
+                val rm = engine.renderableManager
+                modelInstance.asset?.entities?.forEach { entity ->
+                    val renderableInstance = rm.getInstance(entity)
+                    if (renderableInstance != 0) {
+                        // Твоя победная формула: Приоритет 7!
+                        rm.setPriority(renderableInstance, 7)
+                        rm.setCastShadows(renderableInstance, false)
+                        rm.setReceiveShadows(renderableInstance, false)
+                    }
+                }
+                occluderNode = node
+            }
+        }
+
+        // ЗАГРУЗКА ПАНАМЫ
+        modelLoader.loadModelInstanceAsync("panama.glb") { modelInstance ->
+            if (modelInstance != null) {
+                val node = ModelNode(modelInstance = modelInstance, centerOrigin = Position(0f, 0f, 0f)).apply {
+                    isVisible = true
+                    parent = faceAnchorNode
+                }
+
+                val rm = engine.renderableManager
+                modelInstance.asset?.entities?.forEach { entity ->
+                    val renderableInstance = rm.getInstance(entity)
+                    if (renderableInstance != 0) {
+                        // Твоя победная формула: Приоритет 7!
+                        rm.setPriority(renderableInstance, 7)
+                        // Отключаем отбрасывание теней от панамы на лицо (чтобы избежать артефактов)
+                        rm.setCastShadows(renderableInstance, false)
+                    }
+                }
+                hatNode = node
+                loadStatus = "Готово!"
+            }
         }
     }
 
-    // 2. Безопасно загружаем модель и привязываем её заранее (вне потока камеры)
-    LaunchedEffect(modelLoader) {
-        try {
-            val model = modelLoader.loadModel("panama.glb")
-            if (model != null) {
-                val modelInstance = modelLoader.createInstance(model)
-                if (modelInstance != null) {
-                    // Используем рабочий конструктор из вчерашней версии
-                    val pNode = object : ModelNode(modelInstance = modelInstance) {}
-                    pNode.parent = faceAnchorNode // Привязываем к якорю лица
-                    panamaNodeState.value = pNode
+    // Реактивное управление прозрачностью щита
+    LaunchedEffect(isOccluderVisible, occluderNode) {
+        occluderNode?.modelInstance?.asset?.entities?.forEach { entity ->
+            val rm = engine.renderableManager
+            val renderableInstance = rm.getInstance(entity)
+            if (renderableInstance != 0) {
+                val primitiveCount = rm.getPrimitiveCount(renderableInstance)
+                for (i in 0 until primitiveCount) {
+                    val material = rm.getMaterialInstanceAt(renderableInstance, i)
+                    material.setColorWrite(isOccluderVisible)
+                    material.setDepthWrite(true)
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    LaunchedEffect(isFaceDetected) {
-        if (isFaceDetected) {
-            panamaYOffset.animateTo(
-                targetValue = 0.13f,
-                animationSpec = spring(dampingRatio = 0.8f, stiffness = 80f)
-            )
-        } else {
-            panamaYOffset.snapTo(0.6f)
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ARScene(
             modifier = Modifier.fillMaxSize(),
-            childNodes = childNodes,
             engine = engine,
             modelLoader = modelLoader,
+            cameraStream = cameraStream,
+            childNodes = childNodes,
             mainLightNode = mainLightNode,
+            isOpaque = false,
             sessionFeatures = setOf(Session.Feature.FRONT_CAMERA),
+            sessionCameraConfig = { session ->
+                session.getSupportedCameraConfigs(CameraConfigFilter(session).apply {
+                    facingDirection = CameraConfig.FacingDirection.FRONT
+                }).firstOrNull() ?: session.cameraConfig
+            },
+            onSessionCreated = { it.setCameraTextureNames(cameraStream.cameraTextureIds) },
             sessionConfiguration = { _, config ->
                 config.augmentedFaceMode = Config.AugmentedFaceMode.MESH3D
-                config.lightEstimationMode = Config.LightEstimationMode.DISABLED
-                config.focusMode = Config.FocusMode.AUTO
+                config.focusMode = Config.FocusMode.FIXED
             },
             onSessionUpdated = { session, _ ->
-                val allFaces = session.getAllTrackables(com.google.ar.core.AugmentedFace::class.java)
-                val trackingFace = allFaces.find { it.trackingState == TrackingState.TRACKING }
+                val face = session.getAllTrackables(AugmentedFace::class.java)
+                    .firstOrNull { it.trackingState == TrackingState.TRACKING }
 
-                isFaceDetected = trackingFace != null
+                if (face != null) {
+                    val pose = face.centerPose
+                    val headQuat = Quaternion(pose.qx(), pose.qy(), pose.qz(), pose.qw())
 
-                if (trackingFace != null) {
-                    val pose = trackingFace.centerPose
-
-                    // 3. ТОЛЬКО обновление координат. Никаких созданий или добавлений объектов!
-                    faceAnchorNode.worldPosition = io.github.sceneview.math.Position(pose.tx(), pose.ty(), pose.tz())
-                    faceAnchorNode.worldQuaternion = dev.romainguy.kotlin.math.Quaternion(pose.qx(), pose.qy(), pose.qz(), pose.qw())
+                    faceAnchorNode.worldPosition = Position(pose.tx(), pose.ty(), pose.tz())
+                    faceAnchorNode.worldQuaternion = headQuat
                     faceAnchorNode.isVisible = true
 
-                    val pitchShift = pose.qx() * 0.01f
-
-                    panamaNodeState.value?.let { node ->
-                        node.position = io.github.sceneview.math.Position(
-                            x = 0f,
-                            y = panamaYOffset.value + pitchShift,
-                            z = -0.09f + pitchShift
-                        )
-                        node.rotation = io.github.sceneview.math.Rotation(x = 0f, y = rotationY, z = 0f)
-                        node.scale = dev.romainguy.kotlin.math.Float3(-0.11f, 0.11f, 0.11f)
+                    // ПРИВЯЗКА ПАНАМЫ
+                    hatNode?.let { node ->
+                        val rotatedHatOffset = headQuat * Float3(0f, pY, pZ)
+                        node.position = Position(rotatedHatOffset.x, rotatedHatOffset.y, rotatedHatOffset.z)
+                        node.scale = Scale(pScale)
+                        node.rotation = Rotation(0f, pRot, 0f)
                     }
 
+                    // ПРИВЯЗКА ЩИТА
+                    occluderNode?.let { node ->
+                        val rotatedOccOffset = headQuat * Float3(0f, oY, oZ)
+                        node.position = Position(rotatedOccOffset.x, rotatedOccOffset.y, rotatedOccOffset.z)
+                        node.scale = Scale(oScale)
+                        node.rotation = Rotation(0f, oRot, 0f)
+                    }
                 } else {
                     faceAnchorNode.isVisible = false
                 }
-                isLoading = false
             }
         )
 
-        AnimatedVisibility(visible = showFlash, enter = fadeIn(), exit = fadeOut()) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.White))
-        }
-
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.Yellow)
-        } else if (!isFaceDetected) {
-            Text(
-                "Наведите камеру на лицо",
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(0.5f), CircleShape)
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                fontSize = 16.sp
-            )
-        }
-
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(bottom = 50.dp)
-                .offset(x = 100.dp)
-                .size(65.dp)
-                .background(Color.Black.copy(0.4f), CircleShape)
-                .align(Alignment.BottomCenter)
+        // ИНТЕРФЕЙС НАСТРОЙКИ СО СКРОЛЛОМ
+        Popup(
+            alignment = Alignment.BottomCenter,
+            properties = PopupProperties(focusable = true, dismissOnClickOutside = false)
         ) {
-            Text("⬅️", fontSize = 30.sp)
-        }
-
-        if (isFaceDetected && !isLoading) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 140.dp)
-                    .fillMaxWidth(0.7f),
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.6f) // Занимает 60% экрана
+                    .background(Color.Black.copy(0.8f))
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()), // ДЕЛАЕМ СКРОЛЛ!
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Поворот панамы", color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
-                Slider(
-                    value = rotationY,
-                    onValueChange = { rotationY = it },
-                    valueRange = -180f..180f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.Yellow,
-                        activeTrackColor = Color.Yellow,
-                        inactiveTrackColor = Color.Gray.copy(0.5f)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(loadStatus, color = Color.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Switch(
+                        checked = isOccluderVisible,
+                        onCheckedChange = { isOccluderVisible = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Red)
                     )
-                )
+                }
+                Text(if (isOccluderVisible) "ЩИТ ВИДИМ (Калибровка)" else "ЩИТ СКРЫТ (Финальный вид)", color = Color.White, fontSize = 12.sp)
+
+                Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
+
+                // --- БЛОК ОСВЕЩЕНИЯ ---
+                Text("НАСТРОЙКИ СВЕТА", color = Color.White, fontWeight = FontWeight.Bold)
+                HorizontalDebugSlider("Яркость", lightIntensity, 10000f, 200000f) { lightIntensity = it }
+                HorizontalDebugSlider("Свет X", lightDirX, -2f, 2f) { lightDirX = it }
+                HorizontalDebugSlider("Свет Y", lightDirY, -2f, 2f) { lightDirY = it }
+                HorizontalDebugSlider("Свет Z", lightDirZ, -2f, 2f) { lightDirZ = it }
+
+                Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
+
+                // --- БЛОК ОККЛЮДЕРА ---
+                Text("НАСТРОЙКИ ЩИТА", color = Color.Cyan, fontWeight = FontWeight.Bold)
+                HorizontalDebugSlider("Размер", oScale, 0.05f, 0.25f) { oScale = it }
+                HorizontalDebugSlider("Высота", oY, -0.1f, 0.2f) { oY = it }
+                HorizontalDebugSlider("Глубина Z", oZ, -0.2f, 0.1f) { oZ = it }
+                HorizontalDebugSlider("Поворот", oRot, 0f, 360f) { oRot = it }
+
+                Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
+
+                // --- БЛОК ПАНАМЫ ---
+                Text("НАСТРОЙКИ ПАНАМЫ", color = Color.Yellow, fontWeight = FontWeight.Bold)
+                HorizontalDebugSlider("Размер", pScale, 0.05f, 0.25f) { pScale = it }
+                HorizontalDebugSlider("Высота", pY, -0.1f, 0.2f) { pY = it }
+                HorizontalDebugSlider("Глубина Z", pZ, -0.2f, 0.1f) { pZ = it }
+                HorizontalDebugSlider("Поворот", pRot, 0f, 360f) { pRot = it }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = onBack, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Text("Назад")
+                }
             }
-
-            Box(
-                modifier = Modifier
-                    .padding(bottom = 40.dp)
-                    .size(90.dp)
-                    .background(Color.White.copy(0.5f), CircleShape)
-                    .padding(4.dp)
-                    .background(Color.White, CircleShape)
-                    .align(Alignment.BottomCenter)
-                    .clickable {
-                        takeScreenshot(view, context) {
-                            scope.launch {
-                                showFlash = true
-                                delay(100)
-                                showFlash = false
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("📸", fontSize = 40.sp)
-            }
         }
     }
 }
 
-private fun Context.findActivity(): Activity? {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
-    }
-    return null
-}
-
-private fun takeScreenshot(view: android.view.View, context: android.content.Context, onComplete: () -> Unit) {
-    val activity = context.findActivity() ?: return onComplete()
-    val surfaceView = findSurfaceView(activity.window.decorView)
-
-    if (surfaceView == null) {
-        Toast.makeText(context, "Ошибка: AR-камера не найдена", Toast.LENGTH_SHORT).show()
-        onComplete()
-        return
-    }
-
-    val bitmap = Bitmap.createBitmap(surfaceView.width, surfaceView.height, Bitmap.Config.ARGB_8888)
-
-    try {
-        PixelCopy.request(surfaceView, bitmap, { result ->
-            if (result == PixelCopy.SUCCESS) {
-                val watermarkedBitmap = addWatermark(bitmap, context)
-                saveBitmapToGallery(watermarkedBitmap, context)
-            } else {
-                Toast.makeText(context, "Не удалось сделать фото", Toast.LENGTH_SHORT).show()
-            }
-            onComplete()
-        }, Handler(Looper.getMainLooper()))
-    } catch (e: Exception) {
-        e.printStackTrace()
-        onComplete()
-    }
-}
-
-private fun findSurfaceView(v: android.view.View): android.view.SurfaceView? {
-    if (v is android.view.SurfaceView) return v
-    if (v is android.view.ViewGroup) {
-        for (i in 0 until v.childCount) {
-            val result = findSurfaceView(v.getChildAt(i))
-            if (result != null) return result
-        }
-    }
-    return null
-}
-
-private fun addWatermark(bitmap: Bitmap, context: Context): Bitmap {
-    val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-    val canvas = android.graphics.Canvas(result)
-    val paint = android.graphics.Paint().apply {
-        color = android.graphics.Color.WHITE
-        textSize = bitmap.height * 0.025f
-        isAntiAlias = true
-        typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-        setShadowLayer(4f, 2f, 2f, android.graphics.Color.BLACK)
-    }
-    val text = "PANAMA RUNNER"
-    val bounds = android.graphics.Rect()
-    paint.getTextBounds(text, 0, text.length, bounds)
-    val padding = 40f
-    val x = bitmap.width - bounds.width() - padding
-    val y = bitmap.height - padding
-    canvas.drawText(text, x, y, paint)
-    paint.textSize = bitmap.height * 0.015f
-    val dateText = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault()).format(java.util.Date())
-    canvas.drawText(dateText, padding, y, paint)
-    return result
-}
-
-private fun saveBitmapToGallery(bitmap: Bitmap, context: android.content.Context) {
-    val filename = "Panama_${System.currentTimeMillis()}.jpg"
-    val contentValues = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/PanamaRunner")
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-    }
-    val contentResolver = context.contentResolver
-    val imageUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-    imageUri?.let { uri ->
-        contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.JPEG, 100, it) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            contentValues.clear()
-            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-            contentResolver.update(uri, contentValues, null, null)
-        }
-        Toast.makeText(context, "Фото сохранено!", Toast.LENGTH_SHORT).show()
+@Composable
+fun HorizontalDebugSlider(label: String, value: Float, min: Float, max: Float, onValueChange: (Float) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = Color.White, modifier = Modifier.width(70.dp), fontSize = 12.sp)
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = min..max,
+            modifier = Modifier.weight(1f)
+        )
+        // Форматируем разные значения по-разному для удобства
+        val formatStr = if (max > 1000f) "%.0f" else "%.3f"
+        Text(formatStr.format(value), color = Color.White, modifier = Modifier.width(45.dp), fontSize = 12.sp)
     }
 }
