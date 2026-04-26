@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
 import com.glazev.panama_runner.R
+import com.glazev.panama_runner.domain.models.GameState
 
 @Composable
 fun SettingsOverlay(
@@ -47,7 +48,7 @@ fun SettingsOverlay(
     onShowTutorial: () -> Unit,
     onClose: () -> Unit
 ) {
-    var showInstructions by remember { mutableStateOf(false) }
+    var activeSubScreen by remember { mutableStateOf<String?>(null) }
     var fullscreenIndex by remember { mutableStateOf<Int?>(null) }
     val context = LocalContext.current
 
@@ -73,28 +74,39 @@ fun SettingsOverlay(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                if (!showInstructions) {
-                    MainSettingsContent(
-                        isUserSignedIn = isUserSignedIn,
-                        userEmail = userEmail,
-                        isSoundEnabled = isSoundEnabled,
-                        isVibrationEnabled = isVibrationEnabled,
-                        unlockedPromoCode = unlockedPromoCode,
-                        onSignIn = onSignIn,
-                        onSignOut = onSignOut,
-                        onToggleSound = onToggleSound,
-                        onToggleVibration = onToggleVibration,
-                        onArTryOn = onArTryOn,
-                        onShowTutorial = onShowTutorial,
-                        onShowInstructions = { showInstructions = true },
-                        onClose = onClose
-                    )
-                } else {
-                    InstructionsContent(
-                        panamas = panamas,
-                        onBack = { showInstructions = false },
-                        onOpenImage = { index -> fullscreenIndex = index }
-                    )
+                when (activeSubScreen) {
+                    null -> {
+                        MainSettingsContent(
+                            isUserSignedIn = isUserSignedIn,
+                            userEmail = userEmail,
+                            isSoundEnabled = isSoundEnabled,
+                            isVibrationEnabled = isVibrationEnabled,
+                            unlockedPromoCode = unlockedPromoCode,
+                            onSignIn = onSignIn,
+                            onSignOut = onSignOut,
+                            onToggleSound = onToggleSound,
+                            onToggleVibration = onToggleVibration,
+                            onArTryOn = onArTryOn,
+                            onShowTutorial = onShowTutorial,
+                            onShowInstructions = { activeSubScreen = "instructions" },
+                            onShowOrder = { activeSubScreen = "order" },
+                            onShowHelp = { activeSubScreen = "help" },
+                            onClose = onClose
+                        )
+                    }
+                    "instructions" -> {
+                        InstructionsContent(
+                            panamas = panamas,
+                            onBack = { activeSubScreen = null },
+                            onOpenImage = { index -> fullscreenIndex = index }
+                        )
+                    }
+                    "order" -> {
+                        OrderDevelopmentContent(onBack = { activeSubScreen = null })
+                    }
+                    "help" -> {
+                        HelpContent(onBack = { activeSubScreen = null })
+                    }
                 }
             }
         }
@@ -138,6 +150,8 @@ private fun MainSettingsContent(
     onArTryOn: () -> Unit,
     onShowTutorial: () -> Unit,
     onShowInstructions: () -> Unit,
+    onShowOrder: () -> Unit,
+    onShowHelp: () -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -189,6 +203,15 @@ private fun MainSettingsContent(
                 SettingItemCompact(icon = "🎓", title = "Обучение", value = "▶️", onClick = onShowTutorial)
                 SettingItemCompact(icon = "📖", title = "Инструкция", value = "👁️", onClick = onShowInstructions)
                 
+                HorizontalDivider(color = Color.White.copy(0.1f), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
+                
+                SettingItemCompact(icon = "🚀", title = "Заказать разработку", value = "💬", onClick = onShowOrder)
+                SettingItemCompact(icon = "🆘", title = "Помощь", value = "✉️", onClick = onShowHelp)
+                SettingItemCompact(icon = "📱", title = "Другие приложения", value = "🛒", onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.rustore.ru/catalog/developer/yqcezb2f"))
+                    context.startActivity(intent)
+                })
+
                 if (unlockedPromoCode != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Column(
@@ -303,7 +326,7 @@ private fun InstructionsContent(
                 Box(modifier = Modifier.fillMaxWidth().background(Color(0xFFFFCC00).copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color(0xFFFFCC00), RoundedCornerShape(12.dp)).padding(12.dp)) {
                     Column {
                         Text("🎁 ПРИЗ ЗА ИГРУ:", color = Color(0xFFFFCC00), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("По завершении вы получите промокод на скидку 50% на Wildberries!", color = Color.White, fontSize = 13.sp)
+                        Text("Соберите ${GameState.MAX_SCORE} панам, чтобы получить промокод на скидку 50% на Wildberries!", color = Color.White, fontSize = 13.sp)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("🛒 Купите сразу, отсканировав QR на главном экране или зажав его (длинный тап).", color = Color.LightGray, fontSize = 12.sp)
                     }
@@ -341,6 +364,176 @@ private fun InstructionsContent(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun OrderDevelopmentContent(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+    
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("РАЗРАБОТКА", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onBack) { Text("⬅️", color = Color.White) }
+            }
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState)
+                    .padding(end = 12.dp)
+            ) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    "Хотите заказать мобильное приложение или игру? Свяжитесь с нами!",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(30.dp))
+                
+                ContactItem(icon = "🔵", title = "ВКонтакте", value = "vk.com/applavka") {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://vk.ru/applavka"))
+                    context.startActivity(intent)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                ContactItem(icon = "✈️", title = "Telegram", value = "@applavka") {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/applavka"))
+                    context.startActivity(intent)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                ContactItem(icon = "📧", title = "Почта", value = "putilich@yandex.ru") {
+                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:putilich@yandex.ru"))
+                    context.startActivity(intent)
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+            
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFCC00)), modifier = Modifier.fillMaxWidth().height(45.dp)) {
+                Text("НАЗАД", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Индикатор скролла (scrollbar)
+        if (scrollState.maxValue > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(top = 70.dp, bottom = 70.dp, end = 4.dp)
+                    .width(4.dp)
+                    .fillMaxHeight(0.6f)
+                    .background(Color.White.copy(0.1f), CircleShape)
+            ) {
+                val scrollRatio = scrollState.value.toFloat() / scrollState.maxValue.toFloat()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.2f)
+                        .graphicsLayer { translationY = scrollRatio * (size.height * 4f) }
+                        .background(Color(0xFFFFCC00), CircleShape)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpContent(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("ПОМОЩЬ", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onBack) { Text("⬅️", color = Color.White) }
+            }
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState)
+                    .padding(end = 12.dp)
+            ) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    "Если у вас возникли вопросы или предложения, пишите нам:",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(30.dp))
+                
+                ContactItem(icon = "🔵", title = "ВКонтакте", value = "vk.com/lavka_apps") {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://vk.ru/lavka_apps"))
+                    context.startActivity(intent)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                ContactItem(icon = "📧", title = "Почта", value = "glazev_artem@inbox.ru") {
+                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:glazev_artem@inbox.ru"))
+                    context.startActivity(intent)
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+            
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFCC00)), modifier = Modifier.fillMaxWidth().height(45.dp)) {
+                Text("НАЗАД", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Индикатор скролла (scrollbar)
+        if (scrollState.maxValue > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(top = 70.dp, bottom = 70.dp, end = 4.dp)
+                    .width(4.dp)
+                    .fillMaxHeight(0.6f)
+                    .background(Color.White.copy(0.1f), CircleShape)
+            ) {
+                val scrollRatio = scrollState.value.toFloat() / scrollState.maxValue.toFloat()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.2f)
+                        .graphicsLayer { translationY = scrollRatio * (size.height * 4f) }
+                        .background(Color(0xFFFFCC00), CircleShape)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactItem(icon: String, title: String, value: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(0.05f), RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(icon, fontSize = 24.sp)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(title, color = Color.Gray, fontSize = 12.sp)
+            Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Text("↗️", color = Color(0xFFFFCC00))
     }
 }
 

@@ -56,10 +56,12 @@ data class GameState(
     // Сессия (онлайн/оффлайн)
     val isOnlineSession: Boolean = true,
     val floatingTexts: List<FloatingText> = emptyList(),
-    val particles: List<GameObject.Particle> = emptyList()
+    val particles: List<GameObject.Particle> = emptyList(),
+    val bubbleText: String? = null,
+    val bubbleTimer: Int = 0
 ) {
     companion object {
-        const val MAX_SCORE = 1000
+        const val MAX_SCORE = 50 // Для тестов (в релизе 1000)
         const val MAX_MISSED = 16
     }
 }

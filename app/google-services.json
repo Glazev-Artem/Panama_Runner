@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "360013361206-gdc5u5eqv8t3nkjps29595ib13dunj7r.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.glazev.panama_runner",
+            "certificate_hash": "98b122be1df921f5b6fc9bee3ac3509c9f233538"
+          }
+        },
+        {
           "client_id": "360013361206-k08ppfufjdmgjrsab1mv1jmcaqg9lakc.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

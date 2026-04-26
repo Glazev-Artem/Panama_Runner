@@ -65,6 +65,25 @@ fun GameOverOverlay(
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // ТЕКУЩИЙ СЧЕТ
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "ВАШ СЧЕТ: ${state.score}",
+                        fontSize = 32.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "РЕКОРД: ${state.bestScore}",
+                        fontSize = 18.sp,
+                        color = Color(0xFFFFCC00),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(32.dp))
                 
                 Button(

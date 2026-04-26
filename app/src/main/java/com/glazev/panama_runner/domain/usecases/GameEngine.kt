@@ -60,6 +60,8 @@ class GameEngine {
         var breathingTick = state.breathingTick
         var breathingCycle = state.breathingCycle
         var breathingCount = state.breathingCount
+        var bubbleText = state.bubbleText
+        var bubbleTimer = state.bubbleTimer
 
         val updatedFloating = state.floatingTexts.mapNotNull {
             val nextLife = it.life - 0.02f
@@ -75,6 +77,11 @@ class GameEngine {
                 vy = it.vy + 0.0005f, // Гравитация
                 life = nextLife
             )
+        }
+
+        if (bubbleTimer > 0) {
+            bubbleTimer--
+            if (bubbleTimer <= 0) bubbleText = null
         }
 
         when (emotion) {
@@ -103,9 +110,15 @@ class GameEngine {
             breathingCycle = breathingCycle,
             breathingCount = breathingCount,
             floatingTexts = updatedFloating,
-            particles = updatedParticles
+            particles = updatedParticles,
+            bubbleText = bubbleText,
+            bubbleTimer = bubbleTimer
         )
     }
+
+    private val goodPhrases = listOf("Круто!", "Йоу!", "Чётко!", "В яблочко!", "Мастер!")
+    private val badPhrases = listOf("Ой!", "Мимо!", "Эхх..", "Ну как так?", "Где панама?")
+    private val catchBadPhrases = listOf("Фуу!", "Брак!", "Выкинь это!", "Не то!", "Ужас!")
 
     private fun handlePlaying(state: GameState): GameState {
         val tempState = updateEmotions(state)
@@ -116,6 +129,8 @@ class GameEngine {
         var newPileItems = tempState.pileItems.toMutableList()
         val newFloatingTexts = tempState.floatingTexts.toMutableList()
         val newParticles = tempState.particles.toMutableList()
+        var newBubbleText = tempState.bubbleText
+        var newBubbleTimer = tempState.bubbleTimer
 
         var currentEmotion = tempState.emotion
         var currentHappyTimer = tempState.happyTimer
@@ -123,13 +138,13 @@ class GameEngine {
         var currentNextThreshold = tempState.nextBreathingThreshold
         var currentSeriesCount = tempState.goodSeriesCount
         
-        val step = (GameState.MAX_SCORE / 5).coerceAtLeast(1)
+        val step = 10 // Градация сложности каждые 10 панам
         val diff = (newScore / step).coerceIn(0, 4)
 
-        val maxObjects = 4 + diff * 2 
-        val baseSpeed = 0.0055f + (diff * 0.0016f) 
-        val spawnChance = 0.96f - (diff * 0.012f) 
-        val badChance = 0.15f + (diff * 0.12f) 
+        val maxObjects = 3 + (diff * 1.5f).toInt() // Быстрее растет кол-во (3, 4, 6, 7, 9)
+        val baseSpeed = 0.0055f + (diff * 0.0022f) // Резко увеличиваем скорость (было 0.0012)
+        val spawnChance = 0.955f - (diff * 0.012f) // Заметно чаще спавним (было 0.965)
+        val badChance = 0.12f + (diff * 0.12f) // Больше брака
 
         val updatedFalling = mutableListOf<GameObject.FallingObject>()
         val boxCenterX = state.playerX + (if (state.playerDirection == com.glazev.panama_runner.domain.models.PlayerDirection.RIGHT) 0.069f else -0.062f)
@@ -146,6 +161,12 @@ class GameEngine {
                 if (nextY > boxTopY + 0.12f) {
                     if (isGood(obj.type)) {
                         newScore++; newCombo++
+                        
+                        // Фраза при хорошем улове
+                        if (Random.nextFloat() > 0.7f && newBubbleTimer <= 0) {
+                            newBubbleText = goodPhrases.random()
+                            newBubbleTimer = 60
+                        }
 
                         // Эффект искр при поимке
                         repeat(8) {
@@ -205,6 +226,11 @@ class GameEngine {
                     } else {
                         newMissedCount++; newCombo = 0
                         currentSeriesCount = 0 // Сброс серии при ошибке
+                        
+                        // Фраза при поимке брака
+                        newBubbleText = catchBadPhrases.random()
+                        newBubbleTimer = 60
+
                         newFloatingTexts.add(com.glazev.panama_runner.domain.models.FloatingText(
                             id = System.nanoTime(), text = "БРАК!", x = boxCenterX, y = boxTopY - 0.05f, 
                             type = com.glazev.panama_runner.domain.models.FloatingTextType.ERROR, color = 0xFFFF0000
@@ -254,6 +280,11 @@ class GameEngine {
                     newMissedCount++
                     newCombo = 0 
                     currentSeriesCount = 0 // Сброс серии при промахе
+                    
+                    // Фраза при промахе
+                    newBubbleText = badPhrases.random()
+                    newBubbleTimer = 60
+
                     newFloatingTexts.add(com.glazev.panama_runner.domain.models.FloatingText(
                         id = System.nanoTime(), text = "ПРОМАХ!", x = obj.x, y = 0.9f, 
                         type = com.glazev.panama_runner.domain.models.FloatingTextType.ERROR, color = 0xFFFF0000
@@ -286,12 +317,16 @@ class GameEngine {
         val updatedConveyor = mutableListOf<GameObject.ConveyorObject>()
         state.conveyorObjects.forEach { obj ->
             var nx = obj.x + 0.0035f
-            if (obj.type == GameObjectType.KOROB_QR && nx >= 0.78f && obj.x < 0.78f && !obj.isWaiting) {
-                updatedConveyor.add(obj.copy(x = 0.78f, isWaiting = true, waitTimer = 2.0f))
-            } else if (obj.isWaiting) {
-                val nt = obj.waitTimer - 0.016f
-                if (nt <= 0) updatedConveyor.add(obj.copy(isWaiting = false, waitTimer = 0f))
-                else updatedConveyor.add(obj.copy(waitTimer = nt))
+            if (obj.type == GameObjectType.KOROB_QR) {
+                if (nx >= 0.78f && obj.x < 0.78f && !obj.isWaiting) {
+                    updatedConveyor.add(obj.copy(x = 0.78f, isWaiting = true, waitTimer = 2.0f))
+                } else if (obj.isWaiting) {
+                    val nt = obj.waitTimer - 0.016f
+                    if (nt <= 0) updatedConveyor.add(obj.copy(isWaiting = false, waitTimer = 0f))
+                    else updatedConveyor.add(obj.copy(waitTimer = nt))
+                } else if (nx < 1.3f) {
+                    updatedConveyor.add(obj.copy(x = nx))
+                }
             } else if (nx < 1.3f) {
                 updatedConveyor.add(obj.copy(x = nx))
             }
@@ -316,7 +351,9 @@ class GameEngine {
             nextBreathingThreshold = currentNextThreshold,
             goodSeriesCount = currentSeriesCount,
             floatingTexts = newFloatingTexts,
-            particles = newParticles
+            particles = newParticles,
+            bubbleText = newBubbleText,
+            bubbleTimer = newBubbleTimer
         )
     }
 

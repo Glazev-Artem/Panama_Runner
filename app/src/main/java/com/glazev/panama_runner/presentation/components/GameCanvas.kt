@@ -116,6 +116,61 @@ fun GameCanvas(state: GameState, viewModel: GameViewModel) {
         // 1. Игрок
         drawImage(playerBitmap, dstOffset = IntOffset((playerXPos - pw/2).toInt(), (playerBottomY - ph).toInt()), dstSize = IntSize(pw, ph))
 
+        // 1.1 Облачко с фразой
+        state.bubbleText?.let { text ->
+            drawIntoCanvas { canvas ->
+                val bubblePaint = Paint().apply {
+                    color = android.graphics.Color.WHITE
+                    style = Paint.Style.FILL
+                }
+                val borderPaint = Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    style = Paint.Style.STROKE
+                    strokeWidth = 4f
+                }
+                val textPaint = Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 40f
+                    typeface = Typeface.DEFAULT_BOLD
+                    textAlign = Paint.Align.CENTER
+                }
+                
+                val textBounds = android.graphics.Rect()
+                textPaint.getTextBounds(text, 0, text.length, textBounds)
+                
+                val padding = 20f
+                val bubbleWidth = textBounds.width() + padding * 2
+                val bubbleHeight = textBounds.height() + padding * 2
+                
+                val bx = playerXPos
+                val by = playerBottomY - ph - 40f
+                
+                val rect = android.graphics.RectF(
+                    bx - bubbleWidth / 2, 
+                    by - bubbleHeight, 
+                    bx + bubbleWidth / 2, 
+                    by
+                )
+                
+                // Рисуем облачко
+                canvas.nativeCanvas.drawRoundRect(rect, 20f, 20f, bubblePaint)
+                canvas.nativeCanvas.drawRoundRect(rect, 20f, 20f, borderPaint)
+                
+                // Хвостик облачка
+                val path = android.graphics.Path().apply {
+                    moveTo(bx - 15f, by)
+                    lineTo(bx, by + 20f)
+                    lineTo(bx + 15f, by)
+                    close()
+                }
+                canvas.nativeCanvas.drawPath(path, bubblePaint)
+                canvas.nativeCanvas.drawPath(path, borderPaint)
+                
+                // Текст
+                canvas.nativeCanvas.drawText(text, bx, by - padding, textPaint)
+            }
+        }
+
         // 2. Падающие предметы
         state.objects.forEach { obj ->
             val bitmap = if (obj.type.name.startsWith("PANAMA")) panamas[obj.type.ordinal % 7] else braks[(obj.type.ordinal - 7).coerceAtMost(0) % 6]
