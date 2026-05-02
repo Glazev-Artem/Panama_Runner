@@ -9,16 +9,21 @@ import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,6 +54,7 @@ import dev.romainguy.kotlin.math.Quaternion
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.sqrt
 
 @Composable
 fun ARScreen(
@@ -56,21 +62,19 @@ fun ARScreen(
 ) {
     val context = LocalContext.current
     var sceneView by remember { mutableStateOf<ARSceneView?>(null) }
-    
-    // Плавная анимация прилета (без перерисовок Compose)
     val flyIn = remember { object { var amount = 1f } }
+    var smoothScale by remember { mutableFloatStateOf(1f) }
 
-    BackHandler {
-        onBack()
-    }
+    // Управление видимостью расширенных настроек
+    var showExtraSettings by remember { mutableStateOf(false) }
+
+    BackHandler { onBack() }
 
     DisposableEffect(context) {
         val activity = context as? Activity
         val originalOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        onDispose {
-            activity?.requestedOrientation = originalOrientation
-        }
+        onDispose { activity?.requestedOrientation = originalOrientation }
     }
 
     val engine = rememberEngine()
@@ -78,28 +82,33 @@ fun ARScreen(
     val materialLoader = rememberMaterialLoader(engine)
     val childNodes = rememberNodes()
 
+    // ==========================================
+    // 1. УСИЛЕННОЕ ОСВЕЩЕНИЕ (Пункт 7.7)
+    // ==========================================
     val mainLightNode = rememberMainLightNode(engine).apply {
-        intensity = 30000f
+        intensity = 100000f // Яркий фронтальный свет
         color = io.github.sceneview.math.Color(1f, 1f, 1f, 1f)
-        lightDirection = io.github.sceneview.math.Direction(0f, -1f, -1f)
+        // Свет светит СВЕРХУ и ВГЛУБЬ экрана (на лоб пользователя)
+        lightDirection = io.github.sceneview.math.Direction(0.5f, -1f, -1f)
     }
 
     val secondaryLightNode = remember(engine) {
         io.github.sceneview.node.LightNode(engine, type = com.google.android.filament.LightManager.Type.DIRECTIONAL) {
-            intensity(15000f)
+            intensity(60000f) // Мощный заполняющий свет
         }.apply {
             color = io.github.sceneview.math.Color(1f, 1f, 1f, 1f)
-            lightDirection = io.github.sceneview.math.Direction(0.5f, 1f, -0.5f)
+            // Свет под углом с другой стороны
+            lightDirection = io.github.sceneview.math.Direction(-0.5f, -0.8f, -1f)
         }
     }
 
     val cameraStream = rememberARCameraStream(materialLoader)
 
-    // Твои откалиброванные настройки
-    var sharedScale by remember { mutableFloatStateOf(0.107f) }
-    var sharedY by remember { mutableFloatStateOf(0.129f) }
+    // ТВОИ НОВЫЕ ЭТАЛОННЫЕ НАСТРОЙКИ
+    var sharedScale by remember { mutableFloatStateOf(0.101f) }
+    var sharedY by remember { mutableFloatStateOf(0.109f) }
     var sharedZ by remember { mutableFloatStateOf(-0.062f) }
-    var sharedX by remember { mutableFloatStateOf(0.005f) } 
+    var sharedX by remember { mutableFloatStateOf(0.0f) } 
     var sharedRot by remember { mutableFloatStateOf(0f) }
 
     val faceAnchorNode = remember(engine) { Node(engine).apply { isVisible = false } }
@@ -120,18 +129,15 @@ fun ARScreen(
                     parent = occluderPivot
                 }
                 val rm = engine.renderableManager
-                modelInstance.asset?.entities?.forEach { entity ->
-                    val renderableInstance = rm.getInstance(entity)
-                    if (renderableInstance != 0) {
-                        rm.setPriority(renderableInstance, 7)
-                        rm.setCastShadows(renderableInstance, false)
-                        rm.setReceiveShadows(renderableInstance, false)
-                        
-                        val primitiveCount = rm.getPrimitiveCount(renderableInstance)
-                        for (i in 0 until primitiveCount) {
-                            val material = rm.getMaterialInstanceAt(renderableInstance, i)
-                            material.setColorWrite(false)
-                            material.setDepthWrite(true)
+                modelInstance.asset.entities.forEach { entity ->
+                    val instance = rm.getInstance(entity)
+                    if (instance != 0) {
+                        rm.setPriority(instance, 7)
+                        val count = rm.getPrimitiveCount(instance)
+                        for (i in 0 until count) {
+                            val mat = rm.getMaterialInstanceAt(instance, i)
+                            mat.setColorWrite(false)
+                            mat.setDepthWrite(true)
                         }
                     }
                 }
@@ -146,11 +152,9 @@ fun ARScreen(
                     parent = hatPivot
                 }
                 val rm = engine.renderableManager
-                modelInstance.asset?.entities?.forEach { entity ->
-                    val renderableInstance = rm.getInstance(entity)
-                    if (renderableInstance != 0) {
-                        rm.setPriority(renderableInstance, 7)
-                    }
+                modelInstance.asset.entities.forEach { entity ->
+                    val instance = rm.getInstance(entity)
+                    if (instance != 0) rm.setPriority(instance, 7)
                 }
                 hatNode = node
             }
@@ -167,7 +171,7 @@ fun ARScreen(
             mainLightNode = mainLightNode,
             onViewCreated = {
                 sceneView = this
-                this.setZOrderOnTop(false) // Чтобы Compose был сверху
+                this.setZOrderOnTop(false)
                 lightEstimator = null 
             },
             isOpaque = false,
@@ -175,7 +179,7 @@ fun ARScreen(
             onSessionCreated = { it.setCameraTextureNames(cameraStream.cameraTextureIds) },
             sessionConfiguration = { _, config ->
                 config.augmentedFaceMode = Config.AugmentedFaceMode.MESH3D
-                config.focusMode = Config.FocusMode.AUTO // Исправляет растяжение
+                config.focusMode = Config.FocusMode.AUTO
                 config.lightEstimationMode = Config.LightEstimationMode.DISABLED
             },
             onSessionUpdated = { session, _ ->
@@ -190,20 +194,32 @@ fun ARScreen(
                     faceAnchorNode.worldQuaternion = Quaternion(pose.qx(), pose.qy(), pose.qz(), pose.qw())
                     faceAnchorNode.isVisible = true
 
+                    val meshBuffer = face.meshVertices
+                    val lx = meshBuffer.get(234 * 3); val ly = meshBuffer.get(234 * 3 + 1); val lz = meshBuffer.get(234 * 3 + 2)
+                    val rx = meshBuffer.get(454 * 3); val ry = meshBuffer.get(454 * 3 + 1); val rz = meshBuffer.get(454 * 3 + 2)
+                    val earDist = sqrt((lx-rx)*(lx-rx) + (ly-ry)*(ly-ry) + (lz-rz)*(lz-rz))
+                    
+                    val targetScaleMult = (earDist / 0.155f).coerceIn(0.8f, 1.4f)
+                    smoothScale = smoothScale + (targetScaleMult - smoothScale) * 0.1f
+                    
+                    val finalScale = sharedScale * smoothScale
+                    val midX = (lx + rx) / 2f
+                    val centerX = sharedX - midX 
+
                     if (flyIn.amount > 0f) flyIn.amount = (flyIn.amount - 0.04f).coerceAtLeast(0f)
                     val currentFlyInY = flyIn.amount * 0.4f
 
-                    hatPivot.position = Position(sharedX, sharedY + currentFlyInY, sharedZ)
+                    hatPivot.position = Position(centerX, sharedY + currentFlyInY, sharedZ)
                     hatNode?.let { node ->
                         node.rotation = Rotation(0f, sharedRot, 0f)
-                        node.scale = Scale(-sharedScale, sharedScale, sharedScale)
+                        node.scale = Scale(-finalScale, finalScale, finalScale)
                     }
 
-                    val occluderScale = sharedScale * 0.95f 
-                    occluderPivot.position = Position(sharedX, sharedY + currentFlyInY, sharedZ)
+                    occluderPivot.position = Position(centerX, sharedY + currentFlyInY, sharedZ)
                     occluderNode?.let { node ->
                         node.rotation = Rotation(0f, sharedRot, 0f)
-                        node.scale = Scale(-occluderScale, occluderScale, occluderScale)
+                        val occScale = finalScale * 0.96f
+                        node.scale = Scale(-occScale, occScale, occScale)
                     }
                 } else {
                     faceAnchorNode.isVisible = false
@@ -212,32 +228,52 @@ fun ARScreen(
             }
         )
 
-        // UI ЭЛЕМЕНТЫ
+        // UI
         Box(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
             Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp)
-                    .fillMaxWidth(),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp).fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 1. Слайдер (опустили вниз к кнопкам)
+                // ПАНЕЛЬ НАСТРОЕК
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.8f)
-                        .background(Color.Black.copy(0.4f), RoundedCornerShape(24.dp))
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                    modifier = Modifier.fillMaxWidth(0.9f).background(Color.Black.copy(0.4f), RoundedCornerShape(24.dp)).padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
-                    HorizontalDebugSlider("Поворот", sharedRot, 0f, 360f) { sharedRot = it }
+                    Column {
+                        // Расширяемые настройки (Размер и Высота)
+                        AnimatedVisibility(
+                            visible = showExtraSettings,
+                            enter = expandVertically(),
+                            exit = shrinkVertically()
+                        ) {
+                            Column {
+                                HorizontalDebugSlider("Размер", sharedScale, 0.08f, 0.15f) { sharedScale = it }
+                                HorizontalDebugSlider("Высота", sharedY, 0.05f, 0.25f) { sharedY = it }
+                                Divider(color = Color.White.copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
+                            }
+                        }
+
+                        // Основная строка (Поворот + Кнопка настроек)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { showExtraSettings = !showExtraSettings },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Settings, 
+                                    contentDescription = null, 
+                                    tint = if (showExtraSettings) Color.Yellow else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            HorizontalDebugSlider("Поворот", sharedRot, 0f, 360f) { sharedRot = it }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 2. Ряд кнопок
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp)
-                ) {
-                    // Кнопка Селфи (в центре)
+                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {
                     IconButton(
                         onClick = {
                             sceneView?.let { view ->
@@ -246,29 +282,13 @@ fun ARScreen(
                                 }
                             }
                         },
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(60.dp)
-                            .background(Color.White, CircleShape)
-                    ) {
-                        Text("📷", fontSize = 30.sp)
-                    }
+                        modifier = Modifier.align(Alignment.Center).size(60.dp).background(Color.White, CircleShape)
+                    ) { Text("📷", fontSize = 30.sp) }
 
-                    // Кнопка Назад (справа)
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .size(60.dp)
-                            .background(Color.Black.copy(0.4f), CircleShape)
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Назад",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
+                        modifier = Modifier.align(Alignment.CenterEnd).size(60.dp).background(Color.Black.copy(0.4f), CircleShape)
+                    ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White, modifier = Modifier.size(30.dp)) }
                 }
             }
         }
@@ -281,14 +301,12 @@ fun takeScreenshot(view: SurfaceView, onResult: (Bitmap?) -> Unit) {
         PixelCopy.request(view, bitmap, { copyResult ->
             if (copyResult == PixelCopy.SUCCESS) onResult(bitmap) else onResult(null)
         }, Handler(Looper.getMainLooper()))
-    } catch (e: Exception) {
-        onResult(null)
-    }
+    } catch (e: Exception) { onResult(null) }
 }
 
 fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
     val watermarkedBitmap = addWatermark(bitmap)
-    val filename = "PanamaSelfie_${System.currentTimeMillis()}.jpg"
+    val filename = "PanamaSelfie_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
     val contentValues = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -304,34 +322,23 @@ fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
                 Toast.makeText(context, "Фото сохранено в галерею!", Toast.LENGTH_SHORT).show()
             }
         }
-    } ?: run {
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, "Ошибка при сохранении фото", Toast.LENGTH_SHORT).show()
-        }
     }
 }
 
 fun addWatermark(source: Bitmap): Bitmap {
     val result = source.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(result)
-    
     val date = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date())
     val text = "ТВОЯ ПАНАМА"
-    
     val paint = Paint().apply {
         color = android.graphics.Color.WHITE
-        textSize = source.height * 0.035f // Размер текста зависит от высоты фото
+        textSize = source.height * 0.035f
         typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-        setShadowLayer(4f, 2f, 2f, android.graphics.Color.BLACK) // Тень для читаемости
+        setShadowLayer(4f, 2f, 2f, android.graphics.Color.BLACK)
     }
-
-    // Рисуем дату в правом верхнем углу
     val dateWidth = paint.measureText(date)
     canvas.drawText(date, source.width - dateWidth - 40f, paint.textSize + 40f, paint)
-
-    // Рисуем название в левом нижнем углу
     canvas.drawText(text, 40f, source.height - 40f, paint)
-    
     return result
 }
 
@@ -348,6 +355,6 @@ fun HorizontalDebugSlider(label: String, value: Float, min: Float, max: Float, o
             valueRange = min..max,
             modifier = Modifier.weight(1f)
         )
-        Text("%.0f".format(value), color = Color.White, modifier = Modifier.width(35.dp), fontSize = 12.sp)
+        Text("%.3f".format(value), color = Color.White, modifier = Modifier.width(45.dp), fontSize = 12.sp)
     }
 }

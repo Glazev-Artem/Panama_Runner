@@ -2,8 +2,10 @@ package com.glazev.panama_runner.di
 
 import com.glazev.panama_runner.data.repository.FirebaseAuthRepository
 import com.glazev.panama_runner.data.repository.FirebaseProgressRepository
+import com.glazev.panama_runner.data.repository.ServerPromoRepository
 import com.glazev.panama_runner.domain.repository.AuthRepository
 import com.glazev.panama_runner.domain.repository.ProgressRepository
+import com.glazev.panama_runner.domain.repository.PromoRepository
 import com.glazev.panama_runner.domain.repository.SettingsRepository
 import dagger.Binds
 import dagger.Module
@@ -26,6 +28,12 @@ abstract class RepositoryModule {
     abstract fun bindAuthRepository(
         impl: FirebaseAuthRepository
     ): AuthRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPromoRepository(
+        impl: ServerPromoRepository
+    ): PromoRepository
 
     @Binds
     @Singleton

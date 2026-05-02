@@ -138,7 +138,7 @@ class GameEngine {
         var currentNextThreshold = tempState.nextBreathingThreshold
         var currentSeriesCount = tempState.goodSeriesCount
         
-        val step = 10 // Градация сложности каждые 10 панам
+        val step = 200 // Градация сложности каждые 200 панам (Боевой режим)
         val diff = (newScore / step).coerceIn(0, 4)
 
         val maxObjects = 3 + (diff * 1.5f).toInt() // Быстрее растет кол-во (3, 4, 6, 7, 9)
@@ -313,27 +313,91 @@ class GameEngine {
             }
         }
 
-        // Конвейер
+        // --- КОНВЕЙЕР (ЛОГИКА 8.2) ---
         val updatedConveyor = mutableListOf<GameObject.ConveyorObject>()
-        state.conveyorObjects.forEach { obj ->
-            var nx = obj.x + 0.0035f
-            if (obj.type == GameObjectType.KOROB_QR) {
-                if (nx >= 0.78f && obj.x < 0.78f && !obj.isWaiting) {
-                    updatedConveyor.add(obj.copy(x = 0.78f, isWaiting = true, waitTimer = 2.0f))
-                } else if (obj.isWaiting) {
-                    val nt = obj.waitTimer - 0.016f
-                    if (nt <= 0) updatedConveyor.add(obj.copy(isWaiting = false, waitTimer = 0f))
-                    else updatedConveyor.add(obj.copy(waitTimer = nt))
-                } else if (nx < 1.3f) {
-                    updatedConveyor.add(obj.copy(x = nx))
+        val boxWidthOnConveyor = 0.145f // Уменьшили расстояние (почти впритык)
+        
+        // Сортируем по X, чтобы обрабатывать от правой стороны к левой
+        val sortedBoxes = state.conveyorObjects.sortedByDescending { it.x }
+        
+        sortedBoxes.forEach { obj ->
+            var nx = obj.x + 0.0035f // Скорость конвейера
+            var shouldStop = false
+            
+            // 1. Остановка QR-кода в конце ленты
+            if (obj.type == GameObjectType.KOROB_QR && nx >= 0.76f && obj.x < 0.76f && !obj.isWaiting) {
+                nx = 0.76f
+                shouldStop = true
+            }
+            
+            // 2. Проверка на впереди идущую коробку (очередь)
+            if (updatedConveyor.isNotEmpty()) {
+                val frontBox = updatedConveyor.last()
+                val dist = frontBox.x - nx
+                if (dist < boxWidthOnConveyor) {
+                    nx = frontBox.x - boxWidthOnConveyor
+                    if (frontBox.isWaiting) shouldStop = true
+                }
+            }
+
+            if (obj.isWaiting || shouldStop) {
+                val nt = if (obj.isWaiting) obj.waitTimer - 0.016f else 4.0f
+                // Если мы в режиме ожидания, используем nx (который уже зафиксирован на 0.76 или прижат к передней коробке)
+                // Но важно НЕ прибавлять скорость в следующем кадре. 
+                // В коде выше nx вычисляется от obj.x. Если мы запишем nx обратно в объект, 
+                // то в следующем кадре obj.x будет 0.76, и nx станет 0.7635.
+                // Поэтому при ожидании мы должны сохранять СТАТИЧНУЮ координату.
+                
+                val stopX = if (shouldStop) nx else obj.x
+                
+                if (nt <= 0) {
+                    // Время ожидания вышло - продолжаем движение
+                    updatedConveyor.add(obj.copy(x = obj.x + 0.0035f, isWaiting = false, waitTimer = 0f))
+                } else {
+                    updatedConveyor.add(obj.copy(x = stopX, isWaiting = true, waitTimer = nt))
                 }
             } else if (nx < 1.3f) {
                 updatedConveyor.add(obj.copy(x = nx))
             }
         }
-        if (updatedConveyor.size < 6 && (updatedConveyor.minByOrNull { it.x }?.x ?: 1f) > 0.15f) {
-            val bType = if (Random.nextInt(20) == 0) GameObjectType.KOROB_QR else GameObjectType.values().filter { it.name.startsWith("KOROB_") && it != GameObjectType.KOROB_QR }.random()
-            updatedConveyor.add(GameObject.ConveyorObject(id = System.nanoTime(), x = -0.3f, y = 0.95f, speed = 0.0035f, type = bType))
+
+        // --- РАНДОМНЫЙ СПАВН ГРУППАМИ (8.2) ---
+        var newBoxesInTrain = state.boxesInTrainLeft
+        var newBoxesSinceLastQR = state.boxesSinceLastQR
+        val leftmostBoxX = updatedConveyor.minByOrNull { it.x }?.x ?: 2f
+        
+        // Уменьшили дистанцию между коробками в группе при спавне
+        val spawnThreshold = if (newBoxesInTrain > 0) -0.05f else 0.4f
+        
+        if (leftmostBoxX > spawnThreshold) {
+            if (newBoxesInTrain > 0) {
+                // Продолжаем текущий паровозик
+                val canSpawnQR = newBoxesSinceLastQR >= 20
+                // Шанс растет от 20 до 25 коробок, на 25-й коробке шанс 100%
+                val bType = if (canSpawnQR && (Random.nextInt(26 - newBoxesSinceLastQR.coerceIn(20, 25)) == 0)) {
+                    newBoxesSinceLastQR = 0
+                    GameObjectType.KOROB_QR 
+                } else {
+                    newBoxesSinceLastQR++
+                    GameObjectType.values().filter { it.name.startsWith("KOROB_") && it != GameObjectType.KOROB_QR }.random()
+                }
+                updatedConveyor.add(GameObject.ConveyorObject(id = System.nanoTime(), x = -0.15f, y = 0.95f, speed = 0.0035f, type = bType))
+                newBoxesInTrain--
+            } else if (Random.nextFloat() > 0.985f) { 
+                // Начинаем новую группу (от 1 до 4 коробок)
+                newBoxesInTrain = Random.nextInt(1, 5)
+                // Сразу спавним первую коробку группы
+                val canSpawnQR = newBoxesSinceLastQR >= 20
+                val bType = if (canSpawnQR && (Random.nextInt(26 - newBoxesSinceLastQR.coerceIn(20, 25)) == 0)) {
+                    newBoxesSinceLastQR = 0
+                    GameObjectType.KOROB_QR 
+                } else {
+                    newBoxesSinceLastQR++
+                    GameObjectType.values().filter { it.name.startsWith("KOROB_") && it != GameObjectType.KOROB_QR }.random()
+                }
+                updatedConveyor.add(GameObject.ConveyorObject(id = System.nanoTime(), x = -0.15f, y = 0.95f, speed = 0.0035f, type = bType))
+                newBoxesInTrain--
+            }
         }
 
         val nextStatus = if (newMissedCount >= GameState.MAX_MISSED) GameStatus.BURIAL
@@ -344,6 +408,8 @@ class GameEngine {
             score = newScore, missedCount = newMissedCount, combo = newCombo,
             pileCount = newPileCount, pileItems = newPileItems,
             objects = updatedFalling, conveyorObjects = updatedConveyor,
+            boxesInTrainLeft = newBoxesInTrain,
+            boxesSinceLastQR = newBoxesSinceLastQR,
             status = nextStatus,
             emotion = currentEmotion,
             happyTimer = currentHappyTimer,

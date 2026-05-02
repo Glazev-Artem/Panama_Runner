@@ -52,6 +52,7 @@ data class GameState(
     
     // Очереди конвейера
     val boxesInTrainLeft: Int = 0, // Сколько коробок осталось заспавнить в текущем "паровозе"
+    val boxesSinceLastQR: Int = 0, // Счетчик обычных коробок после последнего QR
     
     // Сессия (онлайн/оффлайн)
     val isOnlineSession: Boolean = true,
@@ -61,7 +62,7 @@ data class GameState(
     val bubbleTimer: Int = 0
 ) {
     companion object {
-        const val MAX_SCORE = 50 // Для тестов (в релизе 1000)
+        const val MAX_SCORE = 1000 // БОЕВОЙ РЕЖИМ
         const val MAX_MISSED = 16
     }
 }

@@ -37,7 +37,9 @@ class GameViewModel @Inject constructor(
     private val isTutorialShownUseCase: com.glazev.panama_runner.domain.usecase.IsTutorialShownUseCase,
     private val setTutorialShownUseCase: com.glazev.panama_runner.domain.usecase.SetTutorialShownUseCase,
     private val saveUnlockedPromoCodeUseCase: SaveUnlockedPromoCodeUseCase,
-    private val getUnlockedPromoCodeUseCase: GetUnlockedPromoCodeUseCase
+    private val getUnlockedPromoCodeUseCase: GetUnlockedPromoCodeUseCase,
+    private val promoRepository: com.glazev.panama_runner.domain.repository.PromoRepository,
+    private val authRepository: com.glazev.panama_runner.domain.repository.AuthRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(GameState())
     val state: StateFlow<GameState> = _state.asStateFlow()
@@ -50,6 +52,13 @@ class GameViewModel @Inject constructor(
 
     private val engine = GameEngine()
     private var gameJob: Job? = null
+
+    // Данные для анти-чита (телеметрия)
+    private var gameStartTime: Long = 0
+    private var totalDistanceMoved: Float = 0f
+    private var totalTicks: Int = 0
+    private var caughtCount: Int = 0
+    private var errorCount: Int = 0
 
     // Текущий рекорд
     private var highScore: Int = 0
@@ -121,6 +130,13 @@ class GameViewModel @Inject constructor(
 
     fun startGame(isOnline: Boolean = true) {
         if (_state.value.status != GameStatus.IDLE) return
+        // Сброс данных анти-чита
+        gameStartTime = System.currentTimeMillis()
+        totalDistanceMoved = 0f
+        totalTicks = 0
+        caughtCount = 0
+        errorCount = 0
+        
         // Сбрасываем состояние перед началом, сохраняя рекорд и устанавливая статус сети
         _state.value = GameState(bestScore = highScore, isOnlineSession = isOnline)
         startCountdown()
@@ -152,6 +168,11 @@ class GameViewModel @Inject constructor(
                 val prevState = _state.value
                 var nextState = engine.nextTick(prevState)
                 
+                // Сбор телеметрии
+                totalTicks++
+                if (nextState.score > prevState.score) caughtCount++
+                if (nextState.missedCount > prevState.missedCount) errorCount++
+
                 // Обновляем рекорд локально и в облаке
                 if (nextState.score > highScore) {
                     highScore = nextState.score
@@ -174,8 +195,36 @@ class GameViewModel @Inject constructor(
                     _effect.emit(GameEffect.PlaySoundGameOver)
                 }
 
+                // Если победа - отправляем телеметрию на сервер
+                if (nextState.status == GameStatus.WON && prevState.status != GameStatus.WON) {
+                    sendVictoryTelemetry(nextState.score, nextState.missedCount)
+                }
+
                 _state.value = nextState
                 delay(16)
+            }
+        }
+    }
+
+    private fun sendVictoryTelemetry(score: Int, missedCount: Int) {
+        val duration = (System.currentTimeMillis() - gameStartTime) / 1000
+        val telemetry = com.glazev.panama_runner.domain.models.GameTelemetry(
+            userId = authRepository.currentUserId ?: "anonymous",
+            score = score,
+            missedCount = missedCount,
+            durationSeconds = duration,
+            totalDistanceMoved = totalDistanceMoved,
+            totalTicks = totalTicks,
+            caughtCount = caughtCount,
+            errorCount = errorCount
+        )
+
+        viewModelScope.launch {
+            promoRepository.verifyAndGetPromo(telemetry).onSuccess { promo ->
+                onWin(promo)
+            }.onFailure {
+                // В случае ошибки сервера или чита можно вывести лог
+                android.util.Log.e("GameViewModel", "Victory verification failed: ${it.message}")
             }
         }
     }
@@ -207,6 +256,10 @@ class GameViewModel @Inject constructor(
         
         val clampedX = newX.coerceIn(0.05f, 0.95f)
         val currentX = _state.value.playerX
+        
+        // Сбор телеметрии движения
+        totalDistanceMoved += kotlin.math.abs(clampedX - currentX)
+
         val direction = if (clampedX > currentX + 0.001f) PlayerDirection.RIGHT 
                         else if (clampedX < currentX - 0.001f) PlayerDirection.LEFT 
                         else _state.value.playerDirection

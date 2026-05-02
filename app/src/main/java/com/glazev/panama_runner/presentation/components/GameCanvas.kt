@@ -188,8 +188,18 @@ fun GameCanvas(state: GameState, viewModel: GameViewModel) {
         
         state.conveyorObjects.forEach { obj ->
             val bitmap = if (obj.type == GameObjectType.KOROB_QR) qrKorob else korobs[(obj.type.ordinal - 13).coerceAtMost(0) % 5]
-            val ciw = (w * 0.14f).toInt(); val cih = (h * 0.14f).toInt()
-            drawImage(bitmap, dstOffset = IntOffset(((obj.x * w) - (ciw / 2)).toInt(), (convY - (h * 0.05f)).toInt()), dstSize = IntSize(ciw, cih))
+            
+            // РАСЧЕТ ПРОПОРЦИЙ: Берем базовую ширину 14% от экрана и вычисляем высоту по картинке
+            val ciw = (w * 0.14f).toInt()
+            val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+            val cih = (ciw * aspectRatio).toInt()
+            
+            // Отрисовка: выравниваем по нижней линии конвейера
+            drawImage(
+                bitmap, 
+                dstOffset = IntOffset(((obj.x * w) - (ciw / 2)).toInt(), (convY - cih + (h * 0.09f)).toInt()),
+                dstSize = IntSize(ciw, cih)
+            )
         }
 
         // 5. КУЧА ПОВЕРХ ВСЕГО (во время заваливания)

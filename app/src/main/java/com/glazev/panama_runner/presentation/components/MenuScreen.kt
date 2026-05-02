@@ -2,9 +2,14 @@ package com.glazev.panama_runner.presentation.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,6 +69,18 @@ fun MenuScreen(
         label = "buttonScale"
     )
 
+    // Анимация пульсации для указателя (пальца)
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val fingerPulse by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "fingerPulse"
+    )
+
     // Диалог оффлайн-режима
     if (showOfflineDialog) {
         AlertDialog(
@@ -104,12 +121,12 @@ fun MenuScreen(
             // Прозрачная область для клика по QR-коду
             Box(
                 modifier = Modifier
-                    .offset(x = (-60).dp, y = (-10).dp) // Смещение влево на 63% и вверх на 10%
-                    .size(width = 105.dp, height = 126.dp) // Ширина 105, Высота: +10% вверх и +10% вниз
+                    .offset(x = (-50).dp, y = (-10).dp) // Смещение влево на 63% и вверх на 10%
+                    .size(width = 115.dp, height = 156.dp) // Ширина 105, Высота: +10% вверх и +10% вниз
                     //.border(1.dp, Color.Red.copy(0.5f)) // Убрали отладочную границу
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onLongPress = {
+                            onTap = {
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.wildberries.ru/catalog/253765354/detail.aspx?targetUrl=GP"))
                                 context.startActivity(intent)
                             }
@@ -119,14 +136,31 @@ fun MenuScreen(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            IconButton(
-                onClick = { showSettings = true },
-                modifier = Modifier
-                    .size(58.dp)
-                    .offset(x = (-20).dp, y = (-30).dp)
-                    .background(Color.Black.copy(0.4f), CircleShape)
-            ) {
-                Text("⚙️", fontSize = 38.sp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = { showSettings = true },
+                    modifier = Modifier
+                        .size(58.dp)
+                        .offset(x = (-20).dp, y = (-30).dp)
+                        .background(Color.Black.copy(0.4f), CircleShape)
+                ) {
+                    Text("⚙️", fontSize = 38.sp)
+                }
+                
+                // Пульсирующий палец-указатель под шестеренкой, сбоку от QR
+                Image(
+                    bitmap = ImageBitmap.imageResource(id = R.drawable.palec_prokrutka_peremeshenie),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .offset(x = (-85).dp, y = (50).dp) // Сдвигаем влево к краю QR, но не на него
+                        .size(60.dp)
+                        .graphicsLayer(
+                            scaleX = fingerPulse,
+                            scaleY = fingerPulse,
+                            rotationZ = -15f // Немного наклоним в сторону QR
+                        ),
+                    contentScale = ContentScale.Fit
+                )
             }
         }
 
