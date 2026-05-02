@@ -221,10 +221,12 @@ class GameViewModel @Inject constructor(
 
         viewModelScope.launch {
             promoRepository.verifyAndGetPromo(telemetry).onSuccess { promo ->
+                _state.update { it.copy(sessionPromoCode = promo) }
                 onWin(promo)
-            }.onFailure {
-                // В случае ошибки сервера или чита можно вывести лог
-                android.util.Log.e("GameViewModel", "Victory verification failed: ${it.message}")
+            }.onFailure { error ->
+                val errorMsg = error.message ?: "НЕИЗВЕСТНАЯ ОШИБКА"
+                android.util.Log.e("GameViewModel", "Victory verification failed: $errorMsg")
+                _state.update { it.copy(sessionPromoCode = "ОШИБКА: $errorMsg") }
             }
         }
     }

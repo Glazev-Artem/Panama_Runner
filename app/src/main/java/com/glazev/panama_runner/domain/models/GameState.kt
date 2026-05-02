@@ -59,7 +59,8 @@ data class GameState(
     val floatingTexts: List<FloatingText> = emptyList(),
     val particles: List<GameObject.Particle> = emptyList(),
     val bubbleText: String? = null,
-    val bubbleTimer: Int = 0
+    val bubbleTimer: Int = 0,
+    val sessionPromoCode: String? = null
 ) {
     companion object {
         const val MAX_SCORE = 1000 // БОЕВОЙ РЕЖИМ
