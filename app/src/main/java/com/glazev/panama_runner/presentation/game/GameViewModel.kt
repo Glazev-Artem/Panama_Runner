@@ -95,6 +95,15 @@ class GameViewModel @Inject constructor(
                 _state.update { it.copy(bestScore = score) }
             }
         }
+
+        // ПРОВЕРКА ИНСТРУКЦИИ (8.5): Если приветствие уже было, а инструкции не было - запускаем
+        viewModelScope.launch {
+            val welcomeShown = isWelcomeShownUseCase().first()
+            val tutorialShown = isTutorialShownUseCase().first()
+            if (welcomeShown && !tutorialShown) {
+                startTutorial()
+            }
+        }
     }
 
     fun onWelcomeDismissed() {
@@ -130,16 +139,24 @@ class GameViewModel @Inject constructor(
 
     fun startGame(isOnline: Boolean = true) {
         if (_state.value.status != GameStatus.IDLE) return
-        // Сброс данных анти-чита
-        gameStartTime = System.currentTimeMillis()
-        totalDistanceMoved = 0f
-        totalTicks = 0
-        caughtCount = 0
-        errorCount = 0
         
-        // Сбрасываем состояние перед началом, сохраняя рекорд и устанавливая статус сети
-        _state.value = GameState(bestScore = highScore, isOnlineSession = isOnline)
-        startCountdown()
+        viewModelScope.launch {
+            // Ещё одна проверка для 8.5: если жмут Старт, но инструкцию не видели
+            val tutorialShown = isTutorialShownUseCase().first()
+            if (!tutorialShown) {
+                startTutorial()
+            } else {
+                // Обычный запуск
+                gameStartTime = System.currentTimeMillis()
+                totalDistanceMoved = 0f
+                totalTicks = 0
+                caughtCount = 0
+                errorCount = 0
+                
+                _state.value = GameState(bestScore = highScore, isOnlineSession = isOnline)
+                startCountdown()
+            }
+        }
     }
 
     private fun startCountdown() {

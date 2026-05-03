@@ -141,18 +141,33 @@ fun MenuScreen(
                     onClick = { showSettings = true },
                     modifier = Modifier
                         .size(58.dp)
-                        .offset(x = (-20).dp, y = (-30).dp)
+                        .offset(x = (-20).dp, y = 5.dp)
                         .background(Color.Black.copy(0.4f), CircleShape)
                 ) {
                     Text("⚙️", fontSize = 38.sp)
                 }
+
+                // Кнопка примерки (иконка панамы) под шестеренкой
+                IconButton(
+                    onClick = onArTryOn,
+                    modifier = Modifier
+                        .size(58.dp)
+                        .offset(x = (-20).dp, y = 15.dp)
+                        .background(Color.Black.copy(0.4f), CircleShape)
+                ) {
+                    Image(
+                        bitmap = ImageBitmap.imageResource(id = R.drawable.panama_2),
+                        contentDescription = "Примерить",
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
                 
-                // Пульсирующий палец-указатель под шестеренкой, сбоку от QR
+                // Пульсирующий палец-указатель под кнопками
                 Image(
                     bitmap = ImageBitmap.imageResource(id = R.drawable.palec_prokrutka_peremeshenie),
                     contentDescription = null,
                     modifier = Modifier
-                        .offset(x = (-85).dp, y = (50).dp) // Сдвигаем влево к краю QR, но не на него
+                        .offset(x = (-85).dp, y = 10.dp)
                         .size(60.dp)
                         .graphicsLayer(
                             scaleX = fingerPulse,
